@@ -146,6 +146,78 @@ func TestCheckStock_NotFound(t *testing.T) {
 	}
 }
 
+// ─── StreamLowStock ───────────────────────────────────────────────────────────
+
+type mockStream struct {
+	grpc.ServerStream
+	ctx      context.Context
+	sent     []*pb.StockResponse
+	sendFunc func(*pb.StockResponse) error
+}
+
+func (m *mockStream) Context() context.Context { return m.ctx }
+func (m *mockStream) Send(r *pb.StockResponse) error {
+	m.sent = append(m.sent, r)
+	if m.sendFunc != nil {
+		return m.sendFunc(r)
+	}
+	return nil
+}
+
+func TestStreamLowStock_Success(t *testing.T) {
+	items := []restInventoryItem{{SKU: "A", Quantity: 5}, {SKU: "B", Quantity: 3}}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(items)
+	}))
+	defer ts.Close()
+	svc := &Service{httpClient: ts.Client(), apiBaseURL: ts.URL}
+	stream := &mockStream{ctx: context.Background()}
+
+	err := svc.StreamLowStock(&pb.EmptyRequest{}, stream)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(stream.sent) != 2 {
+		t.Errorf("expected 2 streamed items, got %d", len(stream.sent))
+	}
+}
+
+func TestStreamLowStock_FetchError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+	svc := &Service{httpClient: ts.Client(), apiBaseURL: ts.URL}
+	stream := &mockStream{ctx: context.Background()}
+	err := svc.StreamLowStock(&pb.EmptyRequest{}, stream)
+	if code := status.Code(err); code != codes.Internal {
+		t.Errorf("expected Internal error, got %v", code)
+	}
+}
+
+func TestStreamLowStock_ContextCancelled(t *testing.T) {
+	items := []restInventoryItem{{SKU: "A", Quantity: 5}, {SKU: "B", Quantity: 3}}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(items)
+	}))
+	defer ts.Close()
+	svc := &Service{httpClient: ts.Client(), apiBaseURL: ts.URL}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stream := &mockStream{
+		ctx: ctx,
+		sendFunc: func(r *pb.StockResponse) error {
+			cancel()
+			return nil
+		},
+	}
+
+	err := svc.StreamLowStock(&pb.EmptyRequest{}, stream)
+	if code := status.Code(err); code != codes.Canceled {
+		t.Errorf("expected Canceled error, got %v", code)
+	}
+}
+
 // ─── Interceptors ─────────────────────────────────────────────────────────────
 
 func TestLoggingInterceptor(t *testing.T) {
