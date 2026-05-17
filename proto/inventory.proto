@@ -1,0 +1,27 @@
+syntax = "proto3";
+ 
+package inventory;
+ 
+option go_package = "github.com/murtuza/grpc-inventory/proto/inventory";
+ 
+// The Pharmacy Inventory service definition.
+service InventoryService {
+  // Unary RPC: Fetch a single product's stock level.
+  rpc CheckStock (StockRequest) returns (StockResponse);
+ 
+  // Server-Streaming RPC: Push all items currently running low on stock.
+  rpc StreamLowStock (EmptyRequest) returns (stream StockResponse);
+}
+ 
+message EmptyRequest {}
+ 
+message StockRequest {
+  string sku = 1;
+}
+ 
+message StockResponse {
+  string sku                   = 1;
+  string medicine_name         = 2;
+  int32  quantity              = 3;
+  bool   requires_prescription = 4;
+}
