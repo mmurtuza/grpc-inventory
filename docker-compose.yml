@@ -12,7 +12,7 @@ services:
       - ./db/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
       - pgdata:/var/lib/postgresql/data
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_PORT:-15432}:5432"
     networks:
       - inventory-net
     healthcheck:

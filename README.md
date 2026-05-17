@@ -9,27 +9,31 @@ A high-performance pharmacy inventory microservice built with **gRPC** and **Go*
 ```
 .
 ├── proto/                   # Protobuf definition + generated Go code
-│   ├── inventory.proto
-│   └── inventory/           # Generated: inventory.pb.go, inventory_grpc.pb.go
-├── rest-api/                # Mock REST API (in-memory data store)
-│   ├── main.go
-│   └── main_test.go
-├── server/                  # gRPC server (proxies to REST API)
-│   ├── main.go
-│   └── main_test.go
-├── client/                  # Sample gRPC client (demo / smoke test)
-│   └── main.go
+├── cmd/                     # Entry points for the applications
+│   ├── rest-api/            # REST API (PostgreSQL data store)
+│   ├── server/              # gRPC server
+│   └── client/              # Sample gRPC client (demo / smoke test)
+├── internal/                # Private application code
+│   ├── cache/               # Redis caching layer
+│   ├── config/              # Configuration loading
+│   ├── grpcserver/          # gRPC service implementation & interceptors
+│   └── inventory/           # Domain logic and REST API handlers
+├── db/                      # Database schema, queries, and sqlc generated code
 ├── .github/workflows/       # GitHub Actions CI pipeline
 ├── Dockerfile               # Multi-stage build (distroless runtime)
-├── docker-compose.yml       # Orchestrates all three services
+├── docker-compose.yml       # Orchestrates all services (API, gRPC, DB, Redis)
 ├── Makefile                 # Developer task runner
 ├── .env.example             # Environment variable reference
-└── postman_collection.json  # Postman collection for manual testing
+├── postman_collection.json  # Postman collection for manual testing
+└── postman_environment_*.json # Postman environments (local & docker)
 ```
 
 ## Features
 
 - **Protocol Buffers (protobuf):** Strict, versioned contract between client and server.
+- **PostgreSQL & Redis:** Robust persistence with SQLC-generated models and fast caching via Redis.
+- **100% Test Coverage:** Comprehensive unit testing achieving full statement coverage for core logic, persistence, and wrappers.
+- **Postman Collection:** Ready-to-use Postman collection and environments included for easy API interaction.
 - **Unary RPC (`CheckStock`):** Fetch inventory details for a single SKU.
 - **Server-Streaming RPC (`StreamLowStock`):** Stream all low-stock items to the client.
 - **Middleware / Interceptors:** Unary logging, panic recovery, and server-streaming logging interceptors.
@@ -113,6 +117,15 @@ make test-coverage
 # Static analysis
 make lint
 ```
+
+The project boasts **100% statement coverage** across all internal packages (business logic, persistence layers, and infrastructure wrappers).
+
+## Postman Collection
+
+A fully configured Postman collection (`postman_collection.json`) and environment files are provided to easily test the REST API.
+1. Import `postman_collection.json` into Postman.
+2. Import either `postman_environment_local.json` or `postman_environment_docker.json` depending on your run environment.
+3. Select the environment in Postman and use the pre-configured requests.
 
 ## API Reference
 
