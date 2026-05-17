@@ -1,0 +1,597 @@
+{
+  "info": {
+    "name": "gRPC Inventory System",
+    "_postman_id": "grpc-inventory-collection-v2",
+    "description": "# gRPC Inventory System API\n\nThis collection covers the **REST Inventory API** (port `8080`) that sits in front of the **gRPC server** (port `50051`).\n\n## Architecture\n```\nPostman / gRPC Client\n       │\n       ▼\n REST API  (:8080)   ←── this collection tests these endpoints\n       │\n       ▼\n gRPC Server (:50051)  ←── gRPC requests use Postman's native gRPC tab\n```\n\n## Environments\nUse the bundled **Local** environment for `localhost` testing or the **Docker** environment for containerised runs.\n\n## Authentication\nNo auth required in this build. Add a Bearer token variable (`{{api_token}}`) when you enable JWT middleware.\n\n## Low-stock threshold\nItems with `quantity < 50` are considered low stock.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": {
+      "major": 2,
+      "minor": 0,
+      "patch": 0
+    }
+  },
+
+  "variable": [
+    { "key": "base_url",    "value": "http://localhost:8080", "type": "string" },
+    { "key": "grpc_host",   "value": "localhost:50051",       "type": "string" },
+    { "key": "created_sku", "value": "",                      "type": "string" }
+  ],
+
+  "item": [
+    {
+      "name": "Health",
+      "description": "Quick sanity-check requests to confirm the service is reachable.",
+      "item": [
+        {
+          "name": "Ping – REST API",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('REST API is reachable (2xx or 404)', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+                  "});",
+                  "pm.test('Response time < 500 ms', function () {",
+                  "    pm.expect(pm.response.responseTime).to.be.below(500);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/inventory/MED-001",
+              "host": ["{{base_url}}"],
+              "path": ["api", "inventory", "MED-001"]
+            },
+            "description": "Fetches a known SKU. A 200 confirms both the server and data store are healthy."
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "REST API – Read",
+      "description": "GET endpoints: fetch a single SKU and list low-stock items.",
+      "item": [
+        {
+          "name": "Get Stock – MED-001 (Amoxicillin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Content-Type is JSON', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('SKU matches', () => pm.expect(body.sku).to.eql('MED-001'));",
+                  "pm.test('medicine_name is present', () => pm.expect(body.medicine_name).to.be.a('string').and.not.empty);",
+                  "pm.test('quantity is a non-negative integer', () => pm.expect(body.quantity).to.be.a('number').and.at.least(0));",
+                  "pm.test('requires_prescription is boolean', () => pm.expect(body.requires_prescription).to.be.a('boolean'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/inventory/MED-001",
+              "host": ["{{base_url}}"],
+              "path": ["api", "inventory", "MED-001"]
+            },
+            "description": "Fetches the stock record for `MED-001` (Amoxicillin 500mg)."
+          },
+          "response": [
+            {
+              "name": "200 – Found",
+              "originalRequest": {
+                "method": "GET",
+                "url": { "raw": "{{base_url}}/api/inventory/MED-001" }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"sku\": \"MED-001\",\n  \"medicine_name\": \"Amoxicillin 500mg\",\n  \"quantity\": 1450,\n  \"requires_prescription\": true\n}"
+            }
+          ]
+        },
+
+        {
+          "name": "Get Stock – MED-089 (low stock item)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('Quantity is below 50 (low stock)', () => pm.expect(body.quantity).to.be.below(50));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "{{base_url}}/api/inventory/MED-089",
+              "host": ["{{base_url}}"],
+              "path": ["api", "inventory", "MED-089"]
+            },
+            "description": "Ibuprofen 200mg – quantity is below the 50-unit low-stock threshold."
+          },
+          "response": []
+        },
+
+        {
+          "name": "Get Stock – 404 (unknown SKU)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 404', () => pm.response.to.have.status(404));",
+                  "const body = pm.response.json();",
+                  "pm.test('Error field present', () => pm.expect(body).to.have.property('error'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "{{base_url}}/api/inventory/INVALID-000",
+              "host": ["{{base_url}}"],
+              "path": ["api", "inventory", "INVALID-000"]
+            },
+            "description": "Expects a 404 with a JSON error body when the SKU does not exist."
+          },
+          "response": [
+            {
+              "name": "404 – Not Found",
+              "originalRequest": {
+                "method": "GET",
+                "url": { "raw": "{{base_url}}/api/inventory/INVALID-000" }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"error\": \"SKU not found\"\n}"
+            }
+          ]
+        },
+
+        {
+          "name": "Get Low-Stock Items",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('Response is an array', () => pm.expect(body).to.be.an('array'));",
+                  "if (body.length > 0) {",
+                  "    pm.test('Every item has required fields', () => {",
+                  "        body.forEach(item => {",
+                  "            pm.expect(item).to.have.all.keys('sku','medicine_name','quantity','requires_prescription');",
+                  "        });",
+                  "    });",
+                  "    pm.test('Every item quantity < 50', () => {",
+                  "        body.forEach(item => pm.expect(item.quantity).to.be.below(50));",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "{{base_url}}/api/inventory/low-stock",
+              "host": ["{{base_url}}"],
+              "path": ["api", "inventory", "low-stock"]
+            },
+            "description": "Returns all SKUs whose quantity is below 50. Seeded data includes MED-089 (12), MED-102 (5), MED-201 (8)."
+          },
+          "response": [
+            {
+              "name": "200 – Low-stock list",
+              "originalRequest": {
+                "method": "GET",
+                "url": { "raw": "{{base_url}}/api/inventory/low-stock" }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "[\n  {\"sku\":\"MED-089\",\"medicine_name\":\"Ibuprofen 200mg\",\"quantity\":12,\"requires_prescription\":false},\n  {\"sku\":\"MED-102\",\"medicine_name\":\"Lisinopril 10mg\",\"quantity\":5,\"requires_prescription\":true},\n  {\"sku\":\"MED-201\",\"medicine_name\":\"Cetirizine 10mg\",\"quantity\":8,\"requires_prescription\":false}\n]"
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "name": "REST API – Write",
+      "description": "POST / PUT / DELETE endpoints. Run in top-to-bottom order; the POST saves the new SKU into the `created_sku` variable used by PUT and DELETE.",
+      "item": [
+        {
+          "name": "Add Stock – POST (valid)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Generate a unique SKU so the test is idempotent across runs",
+                  "const ts = Date.now();",
+                  "pm.collectionVariables.set('created_sku', 'TEST-' + ts);",
+                  "pm.collectionVariables.set('new_sku_payload', JSON.stringify({",
+                  "    sku: 'TEST-' + ts,",
+                  "    medicine_name: 'Test Drug 100mg',",
+                  "    quantity: 75,",
+                  "    requires_prescription: false",
+                  "}));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201 Created', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test('SKU echoed back', () => pm.expect(body.sku).to.eql(pm.collectionVariables.get('created_sku')));",
+                  "pm.test('quantity is 75', () => pm.expect(body.quantity).to.eql(75));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept",       "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{{new_sku_payload}}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/inventory",
+              "host": ["{{base_url}}"],
+              "path": ["api", "inventory"]
+            },
+            "description": "Creates a new inventory item. A pre-request script generates a unique timestamped SKU and stores it in `{{created_sku}}` for the subsequent PUT and DELETE requests."
+          },
+          "response": [
+            {
+              "name": "201 – Created",
+              "originalRequest": {
+                "method": "POST",
+                "url": { "raw": "{{base_url}}/api/inventory" },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\"sku\":\"MED-999\",\"medicine_name\":\"Test Drug 100mg\",\"quantity\":75,\"requires_prescription\":false}"
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"sku\": \"MED-999\",\n  \"medicine_name\": \"Test Drug 100mg\",\n  \"quantity\": 75,\n  \"requires_prescription\": false\n}"
+            }
+          ]
+        },
+
+        {
+          "name": "Add Stock – POST (bad body → 400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400 Bad Request', () => pm.response.to.have.status(400));",
+                  "const body = pm.response.json();",
+                  "pm.test('Error field present', () => pm.expect(body).to.have.property('error'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept",       "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "not-valid-json",
+              "options": { "raw": { "language": "text" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/inventory",
+              "host": ["{{base_url}}"],
+              "path": ["api", "inventory"]
+            },
+            "description": "Sends malformed JSON to verify the 400 Bad Request path."
+          },
+          "response": []
+        },
+
+        {
+          "name": "Update Stock – PUT (existing SKU)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('SKU preserved (not overwritten by body)', () => {",
+                  "    pm.expect(body.sku).to.eql(pm.collectionVariables.get('created_sku'));",
+                  "});",
+                  "pm.test('quantity updated to 200', () => pm.expect(body.quantity).to.eql(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept",       "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"medicine_name\": \"Test Drug 100mg (updated)\",\n  \"quantity\": 200,\n  \"requires_prescription\": true\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/inventory/{{created_sku}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "inventory", "{{created_sku}}"]
+            },
+            "description": "Updates the item created by the POST request. Uses `{{created_sku}}` set by the pre-request script in the POST step."
+          },
+          "response": [
+            {
+              "name": "200 – Updated",
+              "originalRequest": {
+                "method": "PUT",
+                "url": { "raw": "{{base_url}}/api/inventory/MED-999" },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\"medicine_name\":\"Test Drug 100mg (updated)\",\"quantity\":200,\"requires_prescription\":true}"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"sku\": \"MED-999\",\n  \"medicine_name\": \"Test Drug 100mg (updated)\",\n  \"quantity\": 200,\n  \"requires_prescription\": true\n}"
+            }
+          ]
+        },
+
+        {
+          "name": "Update Stock – PUT (404 unknown SKU)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 404', () => pm.response.to.have.status(404));",
+                  "pm.test('Error field present', () => pm.expect(pm.response.json()).to.have.property('error'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept",       "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"medicine_name\": \"Ghost Drug\",\n  \"quantity\": 10,\n  \"requires_prescription\": false\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/inventory/GHOST-000",
+              "host": ["{{base_url}}"],
+              "path": ["api", "inventory", "GHOST-000"]
+            },
+            "description": "PUT to a non-existent SKU – expects 404."
+          },
+          "response": []
+        },
+
+        {
+          "name": "Delete Stock – DELETE (existing SKU)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('Success message returned', () => pm.expect(body).to.have.property('message'));",
+                  "pm.collectionVariables.unset('created_sku');",
+                  "pm.collectionVariables.unset('new_sku_payload');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "{{base_url}}/api/inventory/{{created_sku}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "inventory", "{{created_sku}}"]
+            },
+            "description": "Deletes the item created by the POST step. Cleans up collection variables on success."
+          },
+          "response": [
+            {
+              "name": "200 – Deleted",
+              "originalRequest": {
+                "method": "DELETE",
+                "url": { "raw": "{{base_url}}/api/inventory/MED-999" }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"message\": \"Stock removed successfully\"\n}"
+            }
+          ]
+        },
+
+        {
+          "name": "Delete Stock – DELETE (404 unknown SKU)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 404', () => pm.response.to.have.status(404));",
+                  "pm.test('Error field present', () => pm.expect(pm.response.json()).to.have.property('error'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "{{base_url}}/api/inventory/GHOST-000",
+              "host": ["{{base_url}}"],
+              "path": ["api", "inventory", "GHOST-000"]
+            },
+            "description": "DELETE on a non-existent SKU – expects 404."
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "gRPC API",
+      "description": "## Using Postman for gRPC\n1. Create a new **gRPC request** in Postman (New → gRPC Request).\n2. Set the server URL to `{{grpc_host}}` (default `localhost:50051`).\n3. Import `proto/inventory.proto` via **Import a .proto file**.\n4. Select the service method and paste the message JSON below.\n\nThe gRPC server has **reflection enabled**, so Postman can auto-discover methods without importing the `.proto` manually (Server Reflection toggle in Postman).",
+      "item": [
+        {
+          "name": "CheckStock – MED-001 (Unary)",
+          "request": {
+            "method": "INVOKE",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sku\": \"MED-001\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "grpc://{{grpc_host}}/inventory.InventoryService/CheckStock",
+              "protocol": "grpc",
+              "host": ["{{grpc_host}}"],
+              "path": ["inventory.InventoryService", "CheckStock"]
+            },
+            "description": "**Unary RPC** – returns a single `StockResponse` for the given SKU.\n\n**Expected response:**\n```json\n{\n  \"sku\": \"MED-001\",\n  \"medicine_name\": \"Amoxicillin 500mg\",\n  \"quantity\": 1450,\n  \"requires_prescription\": true\n}\n```"
+          },
+          "response": []
+        },
+
+        {
+          "name": "CheckStock – MED-089 (low-stock item)",
+          "request": {
+            "method": "INVOKE",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sku\": \"MED-089\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "grpc://{{grpc_host}}/inventory.InventoryService/CheckStock",
+              "protocol": "grpc",
+              "host": ["{{grpc_host}}"],
+              "path": ["inventory.InventoryService", "CheckStock"]
+            },
+            "description": "Fetches Ibuprofen 200mg – quantity is below the low-stock threshold (12 units)."
+          },
+          "response": []
+        },
+
+        {
+          "name": "CheckStock – NOT_FOUND error",
+          "request": {
+            "method": "INVOKE",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sku\": \"INVALID-000\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "grpc://{{grpc_host}}/inventory.InventoryService/CheckStock",
+              "protocol": "grpc",
+              "host": ["{{grpc_host}}"],
+              "path": ["inventory.InventoryService", "CheckStock"]
+            },
+            "description": "Expects a gRPC `NOT_FOUND (5)` status error because the SKU does not exist in the REST API."
+          },
+          "response": []
+        },
+
+        {
+          "name": "StreamLowStock (Server-Streaming)",
+          "request": {
+            "method": "INVOKE",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "grpc://{{grpc_host}}/inventory.InventoryService/StreamLowStock",
+              "protocol": "grpc",
+              "host": ["{{grpc_host}}"],
+              "path": ["inventory.InventoryService", "StreamLowStock"]
+            },
+            "description": "**Server-Streaming RPC** – streams one `StockResponse` message per low-stock item.\n\nPostman shows each streamed message in the **Messages** panel as it arrives. The stream closes once the server has sent all items.\n\n**Expected stream (3 messages with default seed data):**\n```\n{ sku: 'MED-089', medicine_name: 'Ibuprofen 200mg',  quantity: 12, requires_prescription: false }\n{ sku: 'MED-102', medicine_name: 'Lisinopril 10mg',  quantity: 5,  requires_prescription: true  }\n{ sku: 'MED-201', medicine_name: 'Cetirizine 10mg',  quantity: 8,  requires_prescription: false }\n```"
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

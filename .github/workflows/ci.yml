@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test & Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run tests with race detector
+        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Print coverage summary
+        run: go tool cover -func=coverage.out
+
+      - name: Build all binaries
+        run: |
+          CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" ./rest-api
+          CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" ./server
+          CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" ./client
+
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build rest-api image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: rest-api
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: server
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build client image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: client
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

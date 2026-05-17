@@ -1,53 +1,160 @@
 # gRPC Inventory Service
 
-This project demonstrates a high-performance inventory microservice using gRPC in Go. It acts as an abstraction layer over an existing REST API to provide efficient, strictly-typed, and stream-capable endpoints for client applications.
+![CI](https://github.com/murtuza/grpc-inventory/actions/workflows/ci.yml/badge.svg)
+
+A high-performance pharmacy inventory microservice built with **gRPC** and **Go**. It acts as an abstraction layer over an existing REST API, exposing strictly-typed, stream-capable endpoints to client applications.
 
 ## Project Structure
 
-*   `proto/`: Contains the Protocol Buffer definition (`inventory.proto`) and the generated Go code (`proto/inventory`).
-*   `server/`: The gRPC server implementation in Go. It handles Unary and Server-Streaming RPCs and proxies requests to the downstream REST API.
-*   `client/`: A sample gRPC client in Go to test the server endpoints.
-*   `rest-api/`: A mock REST API that serves as the backend data source for the gRPC server.
+```
+.
+├── proto/                   # Protobuf definition + generated Go code
+│   ├── inventory.proto
+│   └── inventory/           # Generated: inventory.pb.go, inventory_grpc.pb.go
+├── rest-api/                # Mock REST API (in-memory data store)
+│   ├── main.go
+│   └── main_test.go
+├── server/                  # gRPC server (proxies to REST API)
+│   ├── main.go
+│   └── main_test.go
+├── client/                  # Sample gRPC client (demo / smoke test)
+│   └── main.go
+├── .github/workflows/       # GitHub Actions CI pipeline
+├── Dockerfile               # Multi-stage build (distroless runtime)
+├── docker-compose.yml       # Orchestrates all three services
+├── Makefile                 # Developer task runner
+├── .env.example             # Environment variable reference
+└── postman_collection.json  # Postman collection for manual testing
+```
 
 ## Features
 
-*   **Protocol Buffers (protobuf):** Defines a strict contract between the client and server.
-*   **Unary RPC (`CheckStock`):** Fetches inventory details for a single SKU.
-*   **Server-Streaming RPC (`StreamLowStock`):** Efficiently streams multiple low-stock items back to the client as they become available, reducing memory overhead.
-*   **Middleware/Interceptors:** Includes unary interceptors for request logging and monitoring.
-*   **Error Handling:** Translates HTTP status codes from the REST API into well-typed gRPC status codes (e.g., `NotFound`, `Internal`).
-*   **Server Reflection:** Enabled for debugging and interacting with the server using tools like `grpcurl`.
+- **Protocol Buffers (protobuf):** Strict, versioned contract between client and server.
+- **Unary RPC (`CheckStock`):** Fetch inventory details for a single SKU.
+- **Server-Streaming RPC (`StreamLowStock`):** Stream all low-stock items to the client.
+- **Middleware / Interceptors:** Unary logging, panic recovery, and server-streaming logging interceptors.
+- **Input Validation:** SKU presence and non-negative quantity enforced on all write operations.
+- **Graceful Shutdown:** SIGTERM/SIGINT handlers drain in-flight requests before exiting.
+- **Structured Logging:** `log/slog` with JSON output in production (`LOG_FORMAT=json`).
+- **Health Check:** `GET /healthz` on the REST API for Docker and load-balancer probes.
+- **CORS Support:** Configurable via `ALLOWED_ORIGIN` environment variable.
+- **Keepalive:** Client and server keepalive parameters prevent zombie connections.
+- **Server Reflection:** Enabled for `grpcurl` and gRPC UI debugging.
+- **Distroless Docker Images:** Minimal attack surface, non-root runtime user.
 
 ## Prerequisites
 
-*   [Go](https://go.dev/) (1.21+)
-*   [Protocol Buffers Compiler (`protoc`)](https://grpc.io/docs/protoc-installation/)
-*   gRPC Go plugins (`protoc-gen-go`, `protoc-gen-go-grpc`)
+| Tool | Version | Notes |
+|------|---------|-------|
+| [Go](https://go.dev/) | 1.22+ | Required for `http.ServeMux` pattern matching |
+| [protoc](https://grpc.io/docs/protoc-installation/) | Latest | Only needed to regenerate proto code |
+| `protoc-gen-go` | Latest | `go install google.golang.org/protobuf/cmd/protoc-gen-go@latest` |
+| `protoc-gen-go-grpc` | Latest | `go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest` |
+| [Docker](https://docs.docker.com/get-docker/) | 20.10+ | For containerised runs |
 
 ## Getting Started
 
-1.  **Generate Protobuf Code**
-    *(If you modify `inventory.proto`, you'll need to regenerate the Go code)*
-    ```bash
-    protoc --go_out=. --go_opt=paths=source_relative \
-        --go-grpc_out=. --go-grpc_opt=paths=source_relative \
-        proto/inventory.proto
-    ```
+### Local Development (without Docker)
 
-2.  **Start the REST API**
-    Navigate to the `rest-api` directory and start the server (typically runs on `http://localhost:8080`).
+```bash
+# 1. Install dependencies
+go mod download
 
-3.  **Start the gRPC Server**
-    ```bash
-    go run server/main.go
-    ```
-    The server will start listening on port `:50051`.
+# 2. Start the REST API (terminal 1)
+make rest
 
-4.  **Run the Client**
-    ```bash
-    go run client/main.go
-    ```
+# 3. Start the gRPC server (terminal 2)
+make server
+
+# 4. Run the demo client (terminal 3)
+make client
+
+# Or run everything in one command:
+make all
+```
+
+### Docker Compose
+
+```bash
+# Copy and customise environment variables (optional)
+cp .env.example .env
+
+# Build and start all three services
+make docker-up
+
+# Tear down
+make docker-down
+```
+
+The client container will connect to the gRPC server, run both demo RPCs, print results, and exit.
 
 ## Environment Variables
 
-*   `REST_API_URL`: The base URL of the downstream REST API. Defaults to `http://localhost:8080`.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `REST_API_PORT` | `8080` | Port the REST API listens on |
+| `LOG_FORMAT` | `text` | Log format: `text` (dev) or `json` (prod) |
+| `ALLOWED_ORIGIN` | `*` | CORS allowed origin |
+| `REST_API_URL` | `http://localhost:8080` | REST API base URL used by the gRPC server |
+| `GRPC_PORT` | `50051` | Port the gRPC server listens on |
+| `SERVER_ADDR` | `localhost:50051` | gRPC server address used by the client |
+
+See [`.env.example`](.env.example) for a full annotated reference.
+
+## Testing
+
+```bash
+# Run all tests with the race detector
+make test
+
+# Generate an HTML coverage report (opens coverage.html)
+make test-coverage
+
+# Static analysis
+make lint
+```
+
+## API Reference
+
+### REST API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/healthz` | Health check |
+| `GET` | `/api/inventory/{sku}` | Get a single stock item |
+| `GET` | `/api/inventory/low-stock` | List items below stock threshold (50) |
+| `POST` | `/api/inventory` | Add a new stock item |
+| `PUT` | `/api/inventory/{sku}` | Update an existing stock item |
+| `DELETE` | `/api/inventory/{sku}` | Remove a stock item |
+
+### gRPC Service (`inventory.InventoryService`)
+
+| RPC | Type | Description |
+|-----|------|-------------|
+| `CheckStock` | Unary | Fetch stock for a single SKU |
+| `StreamLowStock` | Server-Streaming | Stream all low-stock items |
+
+Use [`grpcurl`](https://github.com/fullstorydev/grpcurl) to call the server directly:
+
+```bash
+# Unary call
+grpcurl -plaintext -d '{"sku":"MED-001"}' localhost:50051 inventory.InventoryService/CheckStock
+
+# Streaming call
+grpcurl -plaintext localhost:50051 inventory.InventoryService/StreamLowStock
+```
+
+## Build
+
+```bash
+# Compile all binaries into ./bin/
+make build
+```
+
+## Regenerating Protobuf Code
+
+Only required if you modify `proto/inventory.proto`:
+
+```bash
+make proto
+```
